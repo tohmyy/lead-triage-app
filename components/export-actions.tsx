@@ -4,21 +4,29 @@ import { Button } from "@/components/ui/button";
 
 interface ExportActionsProps {
   onExport: () => void;
-  onReset: () => void;
+  onReset?: () => void;
   disabled?: boolean;
+  exportLabel?: string;
 }
 
-export function ExportActions({ onExport, onReset, disabled = false }: ExportActionsProps) {
+export function ExportActions({
+  onExport,
+  onReset,
+  disabled = false,
+  exportLabel = "Export Clean CSV",
+}: ExportActionsProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <Button type="button" onClick={onExport} disabled={disabled} className="gap-2">
         <Download className="h-4 w-4" />
-        Export Clean CSV
+        {exportLabel}
       </Button>
-      <Button type="button" variant="outline" onClick={onReset} className="gap-2">
-        <RotateCcw className="h-4 w-4" />
-        Reset
-      </Button>
+      {onReset && (
+        <Button type="button" variant="outline" onClick={onReset} className="gap-2">
+          <RotateCcw className="h-4 w-4" />
+          Reset
+        </Button>
+      )}
     </div>
   );
 }

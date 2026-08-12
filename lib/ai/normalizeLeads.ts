@@ -37,10 +37,16 @@ For location:
 - Do not guess missing country codes
 
 For lead notes:
-- Preserve the original text
-- Create "normalizedNotes" only if a meaningful summary is appropriate
+- Preserve the original text exactly as provided in "notes"
+- Do NOT create summarized or rewritten notes fields
 - Do not rewrite or alter the original meaning`;
 
+/**
+ * Already cleaned/deterministically normalized leads
+ * Ready for semantic AI normalization
+ * Note: email, phone, budget, dates, sources are already cleaned
+ * Focus AI on unstructured fields: jobTitle, industry, location, productInterest, notes
+ */
 type LeadForNormalization = {
   id: string;
   jobTitle?: string | null;
@@ -108,8 +114,7 @@ Respond with ONLY this JSON structure (no other text):
         "jobTitle": "string or null",
         "industry": "string or null",
         "location": "string or null",
-        "productInterest": "string or null",
-        "normalizedNotes": "string or null"
+        "productInterest": "string or null"
       },
       "changes": [
         {
