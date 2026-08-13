@@ -12,6 +12,7 @@ import {
   type WorkProgress,
 } from "@/components/processing-progress";
 import { RankedLeadsTable } from "@/components/ranked-leads-table";
+import { RawDataPreview } from "@/components/raw-data-preview";
 import { Button } from "@/components/ui/button";
 import { profileColumns } from "@/lib/data/profileColumns";
 import { cleanDeterministicEnhanced } from "@/lib/data/cleanDeterministicEnhanced";
@@ -30,6 +31,7 @@ import Papa from "papaparse";
 type ProcessingStage =
   | "upload"
   | "profiling"
+  | "raw_preview"
   | "mapping_ai"
   | "mapping_review"
   | "deterministic_cleaning"
@@ -54,6 +56,7 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 export default function Home() {
   const [rawRows, setRawRows] = useState<RawRow[] | null>(null);
+  const [rawColumns, setRawColumns] = useState<string[]>([]);
   const [fileName, setFileName] = useState<string>("");
   const [stage, setStage] = useState<ProcessingStage>("upload");
   const [columnMappings, setColumnMappings] = useState<ColumnMapping[]>([]);
@@ -145,21 +148,19 @@ export default function Home() {
 
           setFileName(file.name);
           setRawRows(rows);
+          setRawColumns(headers);
           setAiSignalsByLeadId(new Map());
           setFailedAnalysisIds([]);
           setRankedLeads([]);
-
-          setProgress({
-            label: "Mapping columns...",
-            detail: "Column mapping",
-            current: 0,
-            total: 1,
-          });
-          setStage("mapping_ai");
-          await performAIColumnMapping(rows);
+          setNormalizedLeads([]);
+          setCleaningSummary(null);
+          setColumnMappings([]);
+          setProgress(null);
+          setStage("raw_preview");
         },
         header: true,
         skipEmptyLines: true,
+        dynamicTyping: false,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error parsing CSV";
@@ -167,6 +168,19 @@ export default function Home() {
       setProgress(null);
       setStage("upload");
     }
+  };
+
+  const handleContinueFromRawPreview = async () => {
+    if (!rawRows?.length) return;
+    setError(null);
+    setProgress({
+      label: "Mapping columns...",
+      detail: "Column mapping",
+      current: 0,
+      total: 1,
+    });
+    setStage("mapping_ai");
+    await performAIColumnMapping(rawRows);
   };
 
   const performAIColumnMapping = async (rows: RawRow[]) => {
@@ -194,7 +208,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error mapping columns");
       setProgress(null);
-      setStage("upload");
+      setStage(rawRows?.length ? "raw_preview" : "upload");
     }
   };
 
@@ -536,6 +550,7 @@ export default function Home() {
 
   const handleReset = () => {
     setRawRows(null);
+    setRawColumns([]);
     setFileName("");
     setStage("upload");
     setColumnMappings([]);
@@ -598,6 +613,16 @@ export default function Home() {
             <Loader className="h-5 w-5 animate-spin text-slate-600" />
             <span className="text-slate-600">Reading file...</span>
           </div>
+        )}
+
+        {stage === "raw_preview" && rawRows && (
+          <RawDataPreview
+            rows={rawRows}
+            columns={rawColumns}
+            fileName={fileName}
+            onContinue={handleContinueFromRawPreview}
+            onReset={handleReset}
+          />
         )}
 
         {stage === "mapping_ai" &&
