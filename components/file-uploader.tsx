@@ -64,7 +64,7 @@ export function FileUploader({ onFileSelected, error }: FileUploaderProps) {
 
         <div className="mt-6 flex items-center gap-2 text-xs text-slate-500">
           <FileText className="h-3.5 w-3.5" />
-          <span>CSV files only · Max 20 MB</span>
+          <span>CSV files only · Max 1,000 rows · Max 2 MB</span>
         </div>
       </div>
 

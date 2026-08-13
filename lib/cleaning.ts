@@ -201,8 +201,8 @@ export function parseCsvFile(file: File): Promise<CleaningResult> {
       return;
     }
 
-    if (file.size > 20 * 1024 * 1024) {
-      reject(new Error("File is too large. Please upload a CSV under 20 MB."));
+    if (file.size > 2 * 1024 * 1024) {
+      reject(new Error("File is too large. Please upload a CSV under 2 MB."));
       return;
     }
 

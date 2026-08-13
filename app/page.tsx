@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CheckCircle2, Loader, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, FileText, Filter, Gauge, Layers, ListOrdered, Loader, ScanSearch, Sparkles, Target, Workflow } from "lucide-react";
 import { useState } from "react";
 
 import { ColumnMappingReview } from "@/components/column-mapping-review";
@@ -15,7 +15,7 @@ import { RankedLeadsTable } from "@/components/ranked-leads-table";
 import { Button } from "@/components/ui/button";
 import { profileColumns } from "@/lib/data/profileColumns";
 import { cleanDeterministicEnhanced } from "@/lib/data/cleanDeterministicEnhanced";
-import { detectDuplicates } from "@/lib/data/detectDuplicates";
+import { deduplicateLeads } from "@/lib/data/deduplicateLeads";
 import {
   exportNormalizedLeadsCsv,
   exportRankedLeadsCsv,
@@ -41,6 +41,8 @@ type ProcessingStage =
 
 const SEMANTIC_BATCH_SIZE = 20;
 const ANALYZE_BATCH_SIZE = 10;
+const MAX_CSV_ROWS = 1000;
+const MAX_CSV_BYTES = 2 * 1024 * 1024; // 2 MB
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -72,12 +74,26 @@ export default function Home() {
     datesCleaned: number;
     employeeCountsCleaned: number;
     sourcesCleaned: number;
-    duplicatesDetected: number;
+    sourceRowCount: number;
+    uniqueLeads: number;
+    exactDuplicatesRemoved: number;
+    idConflictRecordCount: number;
+    idConflictLeadIds: string[];
     semanticsNormalized: number;
   } | null>(null);
 
   const handleFileSelected = async (file: File) => {
     setError(null);
+
+    if (file.size > MAX_CSV_BYTES) {
+      setError(
+        `File is ${(file.size / (1024 * 1024)).toFixed(2)} MB. Maximum allowed size is 2 MB.`,
+      );
+      setProgress(null);
+      setStage("upload");
+      return;
+    }
+
     setProgress({
       label: "Reading file...",
       detail: "Parse",
@@ -105,6 +121,15 @@ export default function Home() {
 
           if (!rows.length) {
             setError("CSV appears to be empty");
+            setProgress(null);
+            setStage("upload");
+            return;
+          }
+
+          if (rows.length > MAX_CSV_ROWS) {
+            setError(
+              `CSV has ${rows.length.toLocaleString()} rows. Maximum allowed is ${MAX_CSV_ROWS.toLocaleString()}.`,
+            );
             setProgress(null);
             setStage("upload");
             return;
@@ -189,7 +214,7 @@ export default function Home() {
       const { leads: deterministicCleaned, summary: cleanStats } =
         cleanDeterministicEnhanced(rawRows, mappings);
 
-      const { totalDuplicateRecords } = detectDuplicates(rawRows, mappings);
+      const dedupe = deduplicateLeads(deterministicCleaned);
 
       setProgress({
         label: "Cleaning structured fields...",
@@ -200,11 +225,7 @@ export default function Home() {
 
       setStage("semantic_normalization");
 
-      await performSemanticNormalization(
-        deterministicCleaned,
-        cleanStats,
-        totalDuplicateRecords,
-      );
+      await performSemanticNormalization(dedupe.leads, cleanStats, dedupe);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error during cleaning");
       setProgress(null);
@@ -215,7 +236,13 @@ export default function Home() {
   const performSemanticNormalization = async (
     deterministicLeads: NormalizedLead[],
     cleanStats: any,
-    duplicates: number,
+    dedupe: {
+      sourceRowCount: number;
+      retainedCount: number;
+      exactDuplicatesRemoved: number;
+      idConflictRecordCount: number;
+      idConflictLeadIds: string[];
+    },
   ) => {
     const batches = chunkArray(deterministicLeads, SEMANTIC_BATCH_SIZE);
     const totalBatches = Math.max(batches.length, 1);
@@ -225,7 +252,7 @@ export default function Home() {
 
     setProgress({
       label: "Analyzing leads with AI...",
-      detail: `AI semantic normalization · 0 / ${totalBatches} batches`,
+      detail: `AI semantic normalization · 0 / ${deterministicLeads.length} unique leads · 0 / ${totalBatches} batches`,
       current: 0,
       total: totalBatches,
       failed: 0,
@@ -269,7 +296,7 @@ export default function Home() {
 
         setProgress({
           label: "Analyzing leads with AI...",
-          detail: `AI semantic normalization · ${completedBatches} / ${totalBatches} batches`,
+          detail: `AI semantic normalization · ${deterministicLeads.length} unique leads · ${completedBatches} / ${totalBatches} batches`,
           current: completedBatches,
           total: totalBatches,
           failed: failedBatches,
@@ -306,7 +333,11 @@ export default function Home() {
         datesCleaned: cleanStats.datesCleaned,
         employeeCountsCleaned: cleanStats.employeeCountsCleaned,
         sourcesCleaned: cleanStats.sourcesCleaned,
-        duplicatesDetected: duplicates,
+        sourceRowCount: dedupe.sourceRowCount,
+        uniqueLeads: dedupe.retainedCount,
+        exactDuplicatesRemoved: dedupe.exactDuplicatesRemoved,
+        idConflictRecordCount: dedupe.idConflictRecordCount,
+        idConflictLeadIds: dedupe.idConflictLeadIds,
         semanticsNormalized: allResults.length,
       });
 
@@ -534,8 +565,8 @@ export default function Home() {
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
-            <Sparkles className="h-3.5 w-3.5 text-slate-700" />
-            AI Analyzer & Ranker
+            <Gauge className="h-3.5 w-3.5 text-slate-700" />
+            Leads Ranker
           </div>
         </header>
 
@@ -616,9 +647,28 @@ export default function Home() {
                 <div className="mt-2 text-emerald-700/80">
                   <ul className="space-y-1">
                     <li>
-                      ✓ {cleaningSummary.rowsProcessed.toLocaleString()} leads
-                      processed
+                      ✓ {cleaningSummary.sourceRowCount.toLocaleString()} rows
+                      imported
                     </li>
+                    <li>
+                      ✓ {cleaningSummary.uniqueLeads.toLocaleString()} unique
+                      leads
+                    </li>
+                    {cleaningSummary.exactDuplicatesRemoved > 0 && (
+                      <li>
+                        ✓ {cleaningSummary.exactDuplicatesRemoved.toLocaleString()}{" "}
+                        exact duplicates removed
+                      </li>
+                    )}
+                    {cleaningSummary.idConflictRecordCount > 0 && (
+                      <li className="text-amber-800">
+                        ⚠ {cleaningSummary.idConflictRecordCount.toLocaleString()}{" "}
+                        records have conflicting Lead IDs
+                        {cleaningSummary.idConflictLeadIds.length > 0
+                          ? ` (${cleaningSummary.idConflictLeadIds.slice(0, 5).join(", ")}${cleaningSummary.idConflictLeadIds.length > 5 ? ", …" : ""})`
+                          : ""}
+                      </li>
+                    )}
                     <li>
                       ✓ {cleaningSummary.emailsCleaned.toLocaleString()} emails
                       normalized
@@ -634,10 +684,6 @@ export default function Home() {
                     <li>
                       ✓ {cleaningSummary.sourcesCleaned.toLocaleString()}{" "}
                       sources normalized
-                    </li>
-                    <li>
-                      ✓ {cleaningSummary.duplicatesDetected.toLocaleString()}{" "}
-                      duplicates detected
                     </li>
                     <li>
                       ✓ {cleaningSummary.semanticsNormalized.toLocaleString()}{" "}
@@ -665,7 +711,7 @@ export default function Home() {
                     hover:shadow-md
                   "
                 >
-                  <Sparkles className="mr-2 h-4 w-4" />
+                  <ListOrdered className="mr-2 h-4 w-4" />
                   Rank Leads
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
